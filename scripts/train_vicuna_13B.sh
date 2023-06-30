@@ -1,6 +1,6 @@
 torchrun --nproc_per_node=8 --master_port=20001 fastchat/train/train_mem.py \
     --model_name_or_path /workspace/weights/llama/13B \
-    --data_path /workspace/datasets/sharegpt/ShareGPT_V3_unfiltered_cleaned_split.json \
+    --data_path /workspace/datasets/sharegpt.json \
     --bf16 True \
     --output_dir output_vicuna_13B \
     --num_train_epochs 3 \
