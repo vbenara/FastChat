@@ -327,7 +327,9 @@ class PeftModelAdapter:
             raise ValueError(
                 f"PeftModelAdapter cannot load a base model with 'peft' in the name: {config.base_model_name_or_path}"
             )
-        return get_conv_template(config.base_model_name_or_path)
+        base_model_path = config.base_model_name_or_path
+        base_adapter = get_model_adapter(base_model_path)
+        return base_adapter.get_default_conv_template(config.base_model_name_or_path)
 
 
 class VicunaAdapter(BaseModelAdapter):
@@ -392,6 +394,28 @@ class LongChatAdapter(BaseModelAdapter):
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("vicuna_v1.1")
+
+
+class CodeT5pAdapter(BaseModelAdapter):
+    """The model adapter for Salesforce/codet5p-6b"""
+
+    def match(self, model_path: str):
+        return "codet5p" in model_path
+
+    def load_model(self, model_path: str, from_pretrained_kwargs: dict):
+        config = AutoConfig.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_path,
+            config=config,
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+        return model, tokenizer
 
 
 class T5Adapter(BaseModelAdapter):
@@ -511,6 +535,21 @@ class OasstLLaMAAdapter(BaseModelAdapter):
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("oasst_llama")
+
+
+class PythiaAdapter(BaseModelAdapter):
+    """The model adapter for any EleutherAI/pythia model"""
+
+    use_fast_tokenizer = True
+
+    def match(self, model_path: str):
+        return "pythia" in model_path
+
+    def load_model(self, model_path: str, from_pretrained_kwargs: dict):
+        model, tokenizer = super().load_model(model_path, from_pretrained_kwargs)
+        model.config.eos_token_id = tokenizer.eos_token_id
+        model.config.pad_token_id = tokenizer.pad_token_id
+        return model, tokenizer
 
 
 class StableLMAdapter(BaseModelAdapter):
@@ -907,6 +946,7 @@ class BaichuanAdapter(BaseModelAdapter):
 register_model_adapter(PeftModelAdapter)
 register_model_adapter(VicunaAdapter)
 register_model_adapter(LongChatAdapter)
+register_model_adapter(CodeT5pAdapter)
 register_model_adapter(T5Adapter)
 register_model_adapter(KoalaAdapter)
 register_model_adapter(AlpacaAdapter)
@@ -938,6 +978,7 @@ register_model_adapter(TuluAdapter)
 register_model_adapter(FalconAdapter)
 register_model_adapter(TigerBotAdapter)
 register_model_adapter(BaichuanAdapter)
+register_model_adapter(PythiaAdapter)
 
 # After all adapters, try the default base adapter.
 register_model_adapter(BaseModelAdapter)
