@@ -1,15 +1,15 @@
-deepspeed fastchat/train/train_lora.py \
-    --model_name_or_path /workspace/weights/llama/7B  \
+deepspeed --num_gpus 8 fastchat/train/train_lora.py \
+    --model_name_or_path /workspace/weights/llama/13B  \
     --lora_r 8 \
     --lora_alpha 16 \
     --lora_dropout 0.05 \
-    --data_path  ../datasets/embrapaquestions.json \
+    --data_path ../datasets/embrapaquestions.json \
     --bf16 True \
-    --output_dir ./checkpoints \
-    --num_train_epochs 10 \
-    --per_device_train_batch_size 4 \
+    --output_dir ./checkpoints_embrapa_lora_13B_2 \
+    --num_train_epochs 3 \
+    --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 2 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
     --save_steps 1200 \

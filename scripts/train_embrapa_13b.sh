@@ -1,14 +1,14 @@
 torchrun --nproc_per_node=8 --master_port=20001 fastchat/train/train_mem.py \
-    --model_name_or_path /workspace/weights/vicuna/13B \
+    --model_name_or_path /workspace/weights/llama/13B \
     --data_path /workspace/datasets/embrapaquestions.json \
     --bf16 True \
-    --output_dir output_embrapa_vicuna_13B \
+    --output_dir output_embrapa_13B \
     --num_train_epochs 3 \
     --per_device_train_batch_size 4 \
     --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 4 \
     --evaluation_strategy "steps" \
-    --eval_steps 1500 \
+    --eval_steps 150 \
     --save_strategy "steps" \
     --save_steps 1500 \
     --save_total_limit 8 \
