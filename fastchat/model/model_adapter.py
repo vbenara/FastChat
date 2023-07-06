@@ -10,9 +10,9 @@ if sys.version_info >= (3, 9):
 else:
     from functools import lru_cache as cache
 
+import accelerate
 import psutil
 import torch
-
 from transformers import (
     AutoConfig,
     AutoModel,
@@ -27,6 +27,9 @@ from transformers import (
 from fastchat.modules.gptq import GptqConfig, load_gptq_quantized
 from fastchat.conversation import Conversation, get_conv_template
 from fastchat.model.compression import load_compress_model
+from fastchat.model.model_chatglm import generate_stream_chatglm
+from fastchat.model.model_codet5p import generate_stream_codet5p
+from fastchat.model.model_falcon import generate_stream_falcon
 from fastchat.model.monkey_patch_non_inplace import (
     replace_llama_attn_with_non_inplace_operations,
 )
@@ -43,11 +46,19 @@ class BaseModelAdapter:
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
         revision = from_pretrained_kwargs.get("revision", "main")
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            use_fast=self.use_fast_tokenizer,
-            revision=revision,
-        )
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                use_fast=self.use_fast_tokenizer,
+                revision=revision,
+            )
+        except TypeError:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                use_fast=False,
+                revision=revision,
+            )
+
         model = AutoModelForCausalLM.from_pretrained(
             model_path, low_cpu_mem_usage=True, **from_pretrained_kwargs
         )
@@ -189,11 +200,19 @@ def load_model(
                 revision=revision,
             )
     elif gptq_config and gptq_config.wbits < 16:
-        return load_gptq_quantized(
-            model_path,
-            gptq_config,
-            device=device,
-        )
+        model, tokenizer = load_gptq_quantized(model_path, gptq_config)
+        if num_gpus != 1:
+            device_map = accelerate.infer_auto_device_map(
+                model,
+                max_memory=kwargs["max_memory"],
+                no_split_module_classes=["LlamaDecoderLayer"],
+            )
+            model = accelerate.dispatch_model(
+                model, device_map=device_map, offload_buffers=True
+            )
+        else:
+            model.to(device)
+        return model, tokenizer
     kwargs["revision"] = revision
 
     # Load model
@@ -215,8 +234,28 @@ def load_model(
 
 
 def get_conversation_template(model_path: str) -> Conversation:
+    """Get the default conversation template."""
     adapter = get_model_adapter(model_path)
     return adapter.get_default_conv_template(model_path)
+
+
+def get_generate_stream_function(model: torch.nn.Module, model_path: str):
+    """Get the generate_stream function for inference."""
+    from fastchat.serve.inference import generate_stream
+
+    model_type = str(type(model)).lower()
+    is_chatglm = "chatglm" in model_type
+    is_falcon = "rwforcausallm" in model_type
+    is_codet5p = "codet5p" in model_type
+
+    if is_chatglm:
+        return generate_stream_chatglm
+    elif is_falcon:
+        return generate_stream_falcon
+    elif is_codet5p:
+        return generate_stream_codet5p
+    else:
+        return generate_stream
 
 
 def add_model_args(parser):
@@ -950,6 +989,18 @@ class XGenAdapter(BaseModelAdapter):
         return get_conv_template("xgen")
 
 
+class NousHermesAdapter(BaseModelAdapter):
+    """The model adapter for NousResearch/Nous-Hermes-13b"""
+
+    use_fast_tokenizer = False
+
+    def match(self, model_path: str):
+        return "Nous-Hermes" in model_path
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("alpaca")
+
+
 # Note: the registration order matters.
 # The one registered earlier has a higher matching priority.
 register_model_adapter(PeftModelAdapter)
@@ -988,6 +1039,7 @@ register_model_adapter(FalconAdapter)
 register_model_adapter(TigerBotAdapter)
 register_model_adapter(BaichuanAdapter)
 register_model_adapter(XGenAdapter)
+register_model_adapter(NousHermesAdapter)
 register_model_adapter(PythiaAdapter)
 
 # After all adapters, try the default base adapter.
